@@ -18,8 +18,9 @@
 # You can create any custom variable you would like, and they will be accessible
 # in the templates via {{ site.myvariable }}.
 
-title: Stephan Hennion - Miscellaneous Tech Notes
+title: Stephanj's Writings
 email: ghp@stephanj.com
+author: Stephan Hennion
 description: >- # this means to ignore newlines until "baseurl:"
   An assortment of notes, references, musings, etc. for my own organization, as well
   as hopefully to the benefit of anyone who happens stumble upon them.
