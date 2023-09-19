@@ -1,0 +1,81 @@
+---
+layout: post
+title:  "Using Micropython to connect Wiznet W5500 Pico Pis over Ethernet"
+date:   2023-09-19 11:48:23 -0400
+categories: jekyll update
+---
+
+The Raspberry Pi Pico is an extremely capable device in the class of hobbyist microcontrollers, with plenty of onboard potential, expandability options, and communication capabilities.  Between serial communication out of the box via usb, or via the official Pico W with wifi out of the box, most users' needs are met for off board comms.  However, wireless communication comes with its own tradeoffs, and serial over usb has limitations as well.  Enter the Wiznet series of custom Pico boards, with a built in Ethernet solution.  Today, we're going to get up and running with the Wiznet W5500 EVB.
+
+To do so, we'll perform the following steps:
+- Flash the unit with a modified version of the micropython bootloader
+- Setup rshell to manage the files on the Pico pi units
+- Write a micropython script that uses DHCP to acquite an IP on the Pico, and ping the device
+- Create another script for bidirectional communication between two W5500's
+
+
+# Flash the unit with a modified version of the micropython bootloader
+
+Micropython requires a bootloader to be loaded onto the Pico to run our custom scripts.  The W5500's built-in ethernet requires a modified version of micropython that's patched for the specialized hardware.  While you can [build it yourself](https://github.com/Wiznet/RP2040-HAT-MicroPython/blob/main/Ethernet%20Example%20Getting%20Started%20%5BMicropython%5D.md#building), we're going to use the [pre-built versions](https://github.com/Wiznet/RP2040-HAT-MicroPython/releases), `v2.0.0 firmware.uf2` specifically at the time of this writing.
+
+Once you've downloaded that file, we'll need to install it onto the Pico:
+- While holding down the `BOOTSEL` button the Pico, plug in the to your machine via the onboard USB
+- A new device called `RPI2` should appear as a USB flash drive on your machine
+- Drag the `v2.0.0 firmware.uf2` file onto the drive
+- The device will automatically disconnect, and installation is complete
+
+# Setup rshell 
+
+Head over to the [rshell github](https://github.com/dhylands/rshell) for details on installing `rshell`.  While there are other methods for managing your Pico devices, I've found rshell to be a powerful, portable command line tool that integrates well into a micropython/pico development pipeline.  While the official docs are best for installing, I will offer a few tips:
+
+- When a Pico is plugged in, its accessible within the rshell command line as `/pyboard`, and each additional Pico will show up as `/pyboard-1`, `/pyboard-2`, etc.
+- When in the rshell CLI, `ls` is relative to where you're running from.  Therefore, if there's a `main.py` in your current directory, within rshell you'd copy this to the Pico with `mv main.py /pyboard`
+- I suggest using a script like the following:
+
+`cp_main.py`
+{% highlight ruby %}
+#!/bin/bash
+
+rshell cp main.py /pyboard
+{% endhighlight %}
+
+This way you can easily do a `cp_main.py` rather than reloading rshell and do the copy manually everytime.
+
+- When in `repl`, press `ctrl+d` to reload main
+- As far as I can tell, using two Pico unit connected to the same PC on rshell doesn't work.  As rshell uses the serial interface for all of its functionality, the output of one Pico can interfere with that of the other.
+
+# Create a micropython script to acquire an IP via DHCP and ping the W5500
+
+Let's get to utilizing the power of the W5500.  We're going to take a script directly from the [Wiznet Examples](https://github.com/Wiznet/RP2040-HAT-MicroPython/blob/main/examples/PING_TEST/w5x00_Ping_Test.py) and make one small tweak in order to support dhcp
+
+{% highlight ruby %}
+from usocket import socket
+from machine import Pin,SPI
+import network
+import time
+
+led = Pin(25, Pin.OUT)
+
+#W5x00 chip init
+def w5x00_init():
+    spi=SPI(0,2_000_000, mosi=Pin(19),miso=Pin(16),sck=Pin(18))
+    nic = network.WIZNET5K(spi,Pin(17),Pin(20)) #spi,cs,reset pin
+    nic.active(True)
+    nic.ifconfig(('192.168.1.20','255.255.255.0','192.168.1.1','8.8.8.8'))
+    while not nic.isconnected():
+        time.sleep(1)
+        print(nic.regs())
+    print(nic.ifconfig())
+        
+def main():
+    w5x00_init()
+
+    while True:
+        led.value(1)
+        time.sleep(1)
+        led.value(0)
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
+{% endhighlight %}
