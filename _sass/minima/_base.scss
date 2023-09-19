@@ -103,15 +103,15 @@ h1, h2, h3, h4, h5, h6 {
  * Links
  */
 a {
-  color: $brand-color;
+  color: $link-base-color;
   text-decoration: none;
 
   &:visited {
-    color: darken($brand-color, 15%);
+    color: $link-visited-color;
   }
 
   &:hover {
-    color: $text-color;
+    color: $link-base-color;
     text-decoration: underline;
   }
 
@@ -149,9 +149,9 @@ blockquote {
 pre,
 code {
   @include relative-font-size(0.9375);
-  border: 1px solid $grey-color-light;
+  border: 1px solid $dm-border-color-01;
   border-radius: 3px;
-  background-color: #eef;
+  background-color: $dm-code-background-color;
 }
 
 code {

@@ -20,7 +20,7 @@
 
   &,
   &:visited {
-    color: $grey-color-dark;
+    color: $link-visited-color;
   }
 }
 
@@ -214,6 +214,7 @@
  */
 .post-header {
   margin-bottom: $spacing-unit;
+  color: $link-base-color;
 }
 
 .post-title {
