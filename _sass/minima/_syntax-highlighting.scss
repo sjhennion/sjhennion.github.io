@@ -3,6 +3,8 @@
  */
 .highlight {
   background: $dm-background-color;
+  margin-top: 20px;
+  margin-bottom: 40px;
   @extend %vertical-rhythm;
 
   .highlighter-rouge & {
@@ -15,7 +17,7 @@
     .o     { font-weight: bold } // Operator
     .cm    { color: #545454; font-style: italic } // Comment.Multiline
     .cp    { color: #545454; font-weight: bold } // Comment.Preproc
-    .c1    { color: #545454; font-style: italic } // Comment.Single
+    .c1    { color: #707070; font-style: italic } // Comment.Single
     .cs    { color: #545454; font-weight: bold; font-style: italic } // Comment.Special
     .gd    { color: #000; background-color: #fdd } // Generic.Deleted
     .gd .x { color: #000; background-color: #faa } // Generic.Deleted.Specific
