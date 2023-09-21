@@ -367,7 +367,7 @@ def main():
 main() 
 {% endhighlight %}
 
-This should look familiar, as it isn't too far off from the server code we're using on the W5500 itself.  The same concepts apply, create a socket and bind to it such that we're listening for inbound connections.  On thing to note in particular is that the `server_address` we're using doesn't provide an explicit IP. This ensures we're listening on all interfaces, as I ran into some issues connecting when binding to localhost, or a specific IP. We're also handling the sending procedure with a bit more care by use a `try:` block, only because the example code I found for a server already had it.  
+This should look familiar, as it isn't too far off from the server code we're using on the W5500 itself.  The same concepts apply, create a socket and bind to it such that we're listening for inbound connections.  On thing to note in particular is that the `server_address` we're using doesn't provide an explicit IP. This ensures we're listening on all interfaces, as I ran into some issues connecting when binding to localhost, or a specific IP. We're also handling the sending procedure with a bit more care by using a `try:` block, only because the example code I found for a server already had it.  
 
 On the W5500 end, we need to make a small modification.  First, you'll need to find the IP of the machine you intend to run the server on.  If you're on a Linux or Mac box, just do the following:
 
@@ -428,3 +428,9 @@ sending data back to the client
 received b'3'
 sending data back to the client
 {% endhighlight %}
+
+## Wrapping Up
+
+I hope this has served as a solid foundation to your own hacking with the W5500.  As I said, I've got a project I'm in the prototyping stages of that currently uses regular Picos communicating over USB that I'm looking forward to converting over to ethernet. While these proof-of-concepts I've provided can get you up and running, they're nowhere near production ready.  If you're looking for next steps to expand on this, I'd suggest hardening the connection standup and come down, such that the client will loop attempting to connect to the server, and the server can handle clients coming and going.  Another good exercise would be running the server on the W5500, and creating a script to run on your PC that talks to it, reversing the example we provided above.
+
+If you come across any errors, or have suggestions for how better to present anything, please don't hesitate to reach out to me at ghp@stephanj.com.  Happy hacking!
