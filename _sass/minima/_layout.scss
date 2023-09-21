@@ -239,11 +239,14 @@
   }
 
   h3 {
+    margin-top: 50px;
     @include relative-font-size(1.625);
 
     @include media-query($on-laptop) {
       @include relative-font-size(1.375);
     }
+
+    //@include margin-top(50);
   }
 
   h4 {

@@ -5,7 +5,7 @@ date:   2023-09-19 11:48:23 -0400
 categories: jekyll update
 ---
 
-The Raspberry Pi Pico has been an excellent addition to my microcontroller repertoire.  Over the years I've built a slew of projects with the original Arduinos, and honestly I can't say enough good about them.  While they're very capable and easy to dive into, the latest project I've been prototyping brought a new demand: I wanted the flexibility of the hobby microcontroller ecosystem, with loads more headroom in the resource department.  I wanted the plug-and-play libraries something like micropython provided, as well as the ability to churn on reasonably sized json structures many times a second.
+The Raspberry Pi Pico has been an excellent addition to my microcontroller repertoire.  Over the years I've built a slew of projects with the original Arduinos, and honestly I can't say enough good about them.  Capable, cheap, and easy to dive into, but unfortunately lacking a bit in the power department. The latest project I've been prototyping needs to be able process json at a solid rate, so the Arduinos are out and the Picos are in.
 
 I built out the original proof-of-concept with regular Picos, utilizing the serial over USB capabilities and some python footwork on the host machine to support multiple Picos on one machine. They are able to talk to each other, to a server via the host machine's python script, as well as supporting hot plugging/un-plugging.  It worked, but was finicky and never gave me the warm fuzzy feeling that it would survive a production environment.  For similar reasons, I ruled out the Pico W before even purchasing one to test.
 
@@ -13,13 +13,15 @@ Enter the Wiznet series of custom Pico boards, with a built in Ethernet solution
 
 To do so, we'll perform the following steps:
 - Flash the unit with a modified version of the micropython bootloader
-- Setup rshell to manage the files on the Pico pi units
-- Write a micropython script that uses DHCP to acquite an IP on the Pico, and ping the device
+- Setup rshell to manage the files on the Pico Pi units
+- Write a micropython script that uses DHCP to acquire an IP on the Pico, and ping the device
 - Create another script for bidirectional communication between two W5500's
 
 ## Flash the unit with a modified version of the micropython bootloader
 
-Micropython requires a bootloader to be loaded onto the Pico to run our custom scripts.  The W5500's built-in ethernet requires a modified version of micropython that's patched for the specialized hardware.  While you can [build it yourself](https://github.com/Wiznet/RP2040-HAT-MicroPython/blob/main/Ethernet%20Example%20Getting%20Started%20%5BMicropython%5D.md#building), we're going to use the [pre-built versions](https://github.com/Wiznet/RP2040-HAT-MicroPython/releases), `v2.0.0 firmware.uf2` specifically at the time of this writing.
+Micropython requires a bootloader to be loaded onto the Pico to run our custom scripts.  The W5500's built-in ethernet requires a modified version of micropython that's patched for the specialized hardware.  While you can [build it yourself](https://github.com/Wiznet/RP2040-HAT-MicroPython/blob/main/Ethernet%20Example%20Getting%20Started%20%5BMicropython%5D.md#building), we're going to use the [pre-built version from Micropython](https://micropython.org/download/W5500_EVB_PICO/), `v1.20.0 (2023-04-26) .uf2 ` specifically at the time of this writing.
+
+It's worth noting here that I originally tried to use the Wiznet provided `uf2` builds found [here](https://github.com/Wiznet/RP2040-HAT-MicroPython/releases), versions `1.0.5` and `2.0.0 pre-release` and ran into issues when getting two W5500s to talk to each other.  Eventually I realized I had missed the micropython provided build for the board on their site, and that's what I've linked in the previous paragraph.  My suggestion is to use that official build.
 
 Once you've downloaded that file, we'll need to install it onto the Pico:
 - While holding down the `BOOTSEL` button the Pico, plug it in to your machine via the onboard USB
@@ -29,7 +31,7 @@ Once you've downloaded that file, we'll need to install it onto the Pico:
 
 ## Setup rshell 
 
-Head over to the [rshell github](https://github.com/dhylands/rshell) for details on installing `rshell`.  While there are other methods for managing your Pico devices, I've found rshell to be a powerful, portable command line tool that integrates well into a micropython/pico development pipeline.  While the official docs are best for installing, I will offer a few tips:
+Head over to the [rshell github](https://github.com/dhylands/rshell) for details on installing `rshell`.  While there are other methods for managing your Pico devices, I've found rshell to be a powerful, portable command line tool that integrates well into a micropython/pico development pipeline.  While the official docs are best for installing, I will offer a few tips once you're up and running:
 
 - When a Pico is plugged in, it's accessible within the rshell command line as `/pyboard`, and each additional Pico will show up as `/pyboard-2`, `/pyboard-3`, etc.
 - When in the rshell CLI, `ls` is relative to where you're running from.  Therefore, if there's a `main.py` in your current directory, within rshell you'd copy this to the Pico with `mv main.py /pyboard`
@@ -43,8 +45,9 @@ rshell cp main.py /pyboard
 
 This way you can easily do a `cp_main.py` rather than reloading rshell and do the copy manually everytime.
 
+- If you don't want to constantly change your files to `main.py` before copying them, you can do `rshell cp my_file.py /pyboard/main.py`
 - When in `repl`, press `ctrl+d` to reload main
-- As far as I can tell, using two Pico unit connected to the same PC on `rshell repl` doesn't work.  As rshell uses the serial interface for all of its functionality, the output of one Pico can interfere with that of the other.
+- As far as I can tell, using two Pico unit connected to the same PC on `rshell` can cause issues.  As rshell uses the serial interface for all of its functionality, the output of one Pico can interfere with that of the other.
 
 ## Create a micropython script to acquire an IP via DHCP and ping the W5500
 
