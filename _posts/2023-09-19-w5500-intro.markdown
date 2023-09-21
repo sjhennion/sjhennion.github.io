@@ -23,7 +23,7 @@ Micropython requires a bootloader to be loaded onto the Pico to run our custom s
 
 Once you've downloaded that file, we'll need to install it onto the Pico:
 - While holding down the `BOOTSEL` button the Pico, plug it in to your machine via the onboard USB
-- A new device called `RPI2` should appear as a USB flash drive on your machine
+- A new device called `RPI-RP2` should appear as a USB flash drive on your machine
 - Drag the `v2.0.0 firmware.uf2` file onto the drive
 - The device will automatically disconnect, and installation is complete
 
@@ -311,3 +311,117 @@ Here's what the entire process looks like:
 </div>
 
 ### Bidirectional comms between a W5500 and a python server running on a regular PC
+
+If you only have one W5500, you'll still want to test its comm capabilities, so let's replace one of the units with a python script running on our PC.  First, the server script we'll run on the PC:
+
+[w5500_server.py](https://github.com/sjhennion/gh_pages_materials/blob/main/w5500-intro/w5500_server.py)
+{% highlight ruby %}
+#python 3
+
+import socket
+import json
+import sys
+
+from time import sleep
+
+def server_setup():
+    # Create a TCP/IP socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    server_address = ('', 5000) #desktop
+    print('starting up on {} port {}'.format(*server_address))
+    sock.bind(server_address)
+
+    # Listen for incoming connections
+    sock.listen(1)
+
+    while True:
+        # Wait for a connection
+        print('waiting for a connection')
+        connection, client_address = sock.accept()
+
+        try:
+            print('connection from', client_address)
+
+            # Receive the data in small chunks and retransmit it
+            while True:
+                data = connection.recv(16)
+                print('received {!r}'.format(data))
+                if data:
+                    print('sending data back to the client')
+                    connection.sendall(data)
+                else:
+                    print('no data from', client_address)
+                    break
+                
+        finally:
+            # Clean up the connection
+            connection.close()
+
+def main():
+    server_setup()
+
+main() 
+{% endhighlight %}
+
+This should look familiar, as it isn't too far off from the server code we're using on the W5500 itself.  The same concepts apply, create a socket and bind to it such that we're listening for inbound connections.  On thing to note in particular is that the `server_address` we're using doesn't provide an explicit IP. This ensures we're listening on all interfaces, as I ran into some issues connecting when binding to localhost, or a specific IP. We're also handling the sending procedure with a bit more care by use a `try:` block, only because the example code I found for a server already had it.  
+
+On the W5500 end, we need to make a small modification.  First, you'll need to find the IP of the machine you intend to run the server on.  If you're on a Linux or Mac box, just do the following:
+
+{% highlight bash %}
+stephan@desktop:~$ ifconfig
+enp4s0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 192.168.1.247  netmask 255.255.255.0  broadcast 192.168.1.255
+        inet6 fe80::acf6:cc70:1601:c0d1  prefixlen 64  scopeid 0x20<link>
+        ether b4:2e:99:ef:fd:bb  txqueuelen 1000  (Ethernet)
+        RX packets 4255205  bytes 906595006 (906.5 MB)
+        RX errors 0  dropped 73  overruns 0  frame 0
+        TX packets 5541790  bytes 5213724129 (5.2 GB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+        device memory 0xf7600000-f761ffff
+{% endhighlight %}
+
+You're looking for the IP following `inet` above, which is `192.168.1.247` in my case.  Next, you need to change the code on the W5500 client.  Look for the line where the client sets the address of the server it is connecting to, and change it:
+
+{% highlight ruby %}
+    print("Attempt Loopback client Connect!")
+
+    s = socket()
+    # This line here below
+    #s.connect(('192.168.1.20', 5000)) #Destination IP Address  
+
+    # Change to this, matching the IP collected above
+    s.connect(('192.168.1.247', 5000)) #Destination IP Address 
+{% endhighlight %}
+
+Now, run the server on your PC:
+
+{% highlight bash %}
+stephan@desktop:~$ python3 w5500_server.py
+starting up on  port 5000
+waiting for a connection
+{% endhighlight %}
+
+Then, start the W5500 client running your modified version of `bidirectional.py`, and you should see:
+
+{% highlight bash %}
+...
+Attempt Loopback client Connect against 192.168.1.247
+Loopback client Connect!
+1
+2
+3
+{% endhighlight %}
+
+With the following on the server:
+
+{% highlight bash %}
+waiting for a connection
+connection from ('192.168.1.20', 58329)
+received b'1'
+sending data back to the client
+received b'2'
+sending data back to the client
+received b'3'
+sending data back to the client
+{% endhighlight %}
