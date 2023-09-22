@@ -1,0 +1,429 @@
+---
+layout: post
+title:  "Using Micropython to connect Wiznet W5500 Pico Pis over Ethernet"
+date:   2023-09-21 20:00:00 -0400
+categories: jekyll update
+---
+
+The Raspberry Pi Pico has been an excellent addition to my microcontroller repertoire.  Over the years I've built a slew of projects with Arduinos, and I can't say enough good about them.  Capable, cheap, and easy to dive into, but unfortunately lacking a bit in the power department. The latest project I've been prototyping needs to be able process json at a solid rate, so the Arduinos are out and the Picos are in.
+
+I built out the original proof-of-concept with regular Picos, utilizing the serial over USB capabilities and some python footwork on the host machine to support multiple Picos to one host. They are able to talk to each other, to a server via the host machine, as well as supporting hot plugging/un-plugging.  It works, but was finicky and never gave me the warm fuzzy feeling that it would survive a production environment.  For similar reasons, I ruled out the Pico W before even purchasing one to test.
+
+Enter the Wiznet series of custom Pico boards, with a built in Ethernet solution. For a slight premium over the cost of a standard Pico Pi ($10/each vs $5/each) and given that I'm not planning on using hundreds of them, it was an easy choice to go with the upgraded units. Today, I'm going to get you up and running with the Wiznet W5500 EVB.
+
+To do so, we'll perform the following steps:
+- Flash the unit with a modified version of the micropython bootloader
+- Setup rshell to manage the files on the Pico Pi units
+- Write a micropython script that uses DHCP to acquire an IP on the Pico, and ping the device
+- Create another script for bidirectional communication between two W5500's
+- Create a script for communicating between the W5500 and a PC
+
+## Flash the unit with a modified version of the micropython bootloader
+
+Micropython requires a bootloader to be loaded onto the Pico to run our custom scripts.  The W5500's built-in ethernet requires a modified version of micropython that's patched for the specialized hardware.  While you can [build it yourself](https://github.com/Wiznet/RP2040-HAT-MicroPython/blob/main/Ethernet%20Example%20Getting%20Started%20%5BMicropython%5D.md#building), we're going to use the [pre-built version from Micropython](https://micropython.org/download/W5500_EVB_PICO/), `v1.20.0 (2023-04-26) .uf2` specifically at the time of this writing.
+
+It's worth noting here that I originally tried to use the Wiznet provided `uf2` builds found [here](https://github.com/Wiznet/RP2040-HAT-MicroPython/releases), versions `1.0.5` and `2.0.0 pre-release` and ran into issues when getting two W5500s to talk to each other.  Eventually I realized I had missed the micropython provided build for the board on their site, and that's what I've linked in the previous paragraph.  My suggestion is to use that official build.
+
+Once you've downloaded that file, we'll need to install it onto the Pico:
+- While holding down the `BOOTSEL` button the Pico, plug it in to your machine via the onboard USB
+- A new device called `RPI-RP2` should appear as a USB flash drive on your machine
+- Drag the `v1.20.0 (2023-04-26) .uf2` file onto the drive
+- The device will automatically disconnect, and installation is complete
+
+## Setup rshell 
+
+Head over to the [rshell github](https://github.com/dhylands/rshell) for details on installing `rshell`.  While there are other methods for managing your Pico devices, I've found rshell to be a powerful, portable command line tool that integrates well into a micropython/pico development pipeline.  While the official docs are best for installing, I will offer a few tips once you're up and running:
+
+- When a Pico is plugged in, it's accessible within the rshell command line as `/pyboard`, and each additional Pico will show up as `/pyboard-2`, `/pyboard-3`, etc.
+- When in the rshell CLI, `ls` is relative to where you're running from.  Therefore, if there's a `main.py` in your current directory, within rshell you'd copy this to the Pico with `mv main.py /pyboard`
+- If you don't want to constantly change your files to `main.py` before copying them, you can do `rshell cp my_file.py /pyboard/main.py`
+- When in `repl`, press `ctrl+d` to reload main
+- As far as I can tell, using two Pico unit connected to the same PC on `rshell` can cause issues.  As rshell uses the serial interface for all of its functionality, the output of one Pico can interfere with that of the other.
+
+## Create a micropython script to acquire an IP via DHCP and ping the W5500
+
+Let's get to utilizing the power of the W5500.  We're going to take a script directly from the [Wiznet Examples](https://github.com/Wiznet/RP2040-HAT-MicroPython/blob/main/examples/PING_TEST/w5x00_Ping_Test.py) and make one small tweak in order to support dhcp
+
+[[dhcp_ping.py]](https://github.com/sjhennion/gh_pages_materials/blob/main/w5500-intro/dhcp_ping.py)
+{% highlight ruby %}
+from usocket import socket
+from machine import Pin,SPI
+import network
+import time
+
+led = Pin(25, Pin.OUT)
+
+#W5x00 chip init
+def w5x00_init():
+    spi=SPI(0,2_000_000, mosi=Pin(19),miso=Pin(16),sck=Pin(18))
+    nic = network.WIZNET5K(spi,Pin(17),Pin(20)) #spi,cs,reset pin
+    nic.active(True)
+    # The only difference from the example linked above, using 
+    # 'dhcp' instead of manually specifying the network info
+    nic.ifconfig('dhcp')
+    while not nic.isconnected():
+        time.sleep(1)
+        print(nic.regs())
+    print(nic.ifconfig())
+        
+def main():
+    w5x00_init()
+
+    while True:
+        led.value(1)
+        time.sleep(1)
+        led.value(0)
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
+{% endhighlight %}
+
+
+Let's break this down:
+1. We enter on `main`, which first calls `w5x00_init()`
+2. In `w5x00_init()`, we prepare the ethernet device, which uses SPI on the pins listed in the `SPI()` call
+3. Our `ifconfig('dhcp')` tells the interface we want to be given an IP address
+4. The `while not nic.isconnected()` is just looping while attempting to confirm a network connection
+5. At this point we jump back to main, where its `while` loop spins forever, turning the LED on and off
+
+Now, let's run this on the device:
+1. Save the file 
+2. Copy the file onto the Pico with `rshell cp dhcp_ping.py /pyboard/main.py`
+3. Open the repl with `rshell repl`
+4. Once at the `>>>` prompt, press `ctrl+d` to reload the program
+
+At this point, you should see something like the following:
+
+{% highlight ruby %}
+>>> 
+MPY: soft reboot
+('192.168.1.95', '255.255.255.0', '192.168.1.1', '192.168.1.1')
+{% endhighlight %}
+
+We can see we acquired an IP of `192.168.1.95`.  If you don't see the network info printed out, or if the LED on your W5500 isn't blinking, you can try statically assigning a IP by replacing:
+
+{% highlight ruby %}
+nic.ifconfig('dhcp')
+# with
+nic.ifconfig(('192.168.1.20','255.255.255.0','192.168.1.1','8.8.8.8'))
+{% endhighlight %}
+
+Once you have an IP, we can take this into your ping program of preference, and attempt to reach the Pico:
+
+{% highlight bash %}
+stephan@DESKTOP:~$ ping 192.168.1.95
+PING 192.168.1.95 (192.168.1.95) 56(84) bytes of data.
+64 bytes from 192.168.1.95: icmp_seq=1 ttl=127 time=0.601 ms
+64 bytes from 192.168.1.95: icmp_seq=2 ttl=127 time=0.286 ms
+^C
+--- 192.168.1.95 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1007ms
+rtt min/avg/max/mdev = 0.286/0.443/0.601/0.157 ms
+stephan@DESKTOP:~$
+{% endhighlight %}
+
+If you're still having issues, ensure that your host machine is on the same network as the Pico, that the link lights on the unit's ethernet port are lit, and try reflashing the bootloader and confirming the file on your unit with `rshell cat /pyboard/main.py`.   
+
+## Bidirectional communication between two W5500s
+
+Now that we've proven our bootloader is correctly flashed and we've got a sign of life from the unit, let's try to actually communicate with the device.  For the sake of showing what's possible, I'll be doing with two W5500s, one acting as a server and the other as a client.  I'm sure not everyone has two units, so I'll also provide a solution that uses just one and has the server running on host machine.
+
+We'll once again be working off [one of the examples](https://github.com/Wiznet/RP2040-HAT-MicroPython/tree/main/examples/Loopback), albeit with a bit more modification this time.  First, the file:
+
+[[bidirectional.py]](https://github.com/sjhennion/gh_pages_materials/blob/main/w5500-intro/bidirectional.py)
+{% highlight ruby %}
+from usocket import socket
+from machine import Pin,SPI
+import network
+import time
+import utime
+
+is_server=False
+led = Pin(25, Pin.OUT)
+
+#W5x00 chip init
+def w5x00_init():
+    spi=SPI(0,2_000_000, mosi=Pin(19),miso=Pin(16),sck=Pin(18))
+    nic = network.WIZNET5K(spi,Pin(17),Pin(20)) #spi,cs,reset pin
+    nic.active(True)
+
+    if is_server: 
+        nic.ifconfig(('192.168.1.20','255.255.255.0','192.168.1.1','8.8.8.8'))
+    else:
+        nic.ifconfig(('192.168.1.21','255.255.255.0','192.168.1.1','8.8.8.8'))
+    
+    print('IP address :', nic.ifconfig())
+    while not nic.isconnected():
+        time.sleep(1)
+        print(nic.regs())
+    
+def server_loop(): 
+    s = socket()
+    s.bind(('192.168.1.20', 5000)) #Source IP Address
+    s.listen(5)
+    
+    print("TEST server")
+    led.value(1)
+    conn, addr = s.accept()
+    print("Connect to:", conn, "address:", addr) 
+    print("Loopback server Open!")
+    while True:
+        data = conn.recv(2048)
+        # Server blinks three times fast on each data reception
+        for x in range(3):
+            led.value(1)
+            utime.sleep_ms(50)
+            led.value(0)
+            utime.sleep_ms(50)
+        print(data.decode('utf-8'))
+        if data != 'NULL':
+            conn.send(data)
+
+def client_loop():
+    print("Attempt Loopback client Connect!")
+
+    s = socket()
+    s.connect(('192.168.1.20', 5000)) #Destination IP Address
+    
+    s.send('1')
+
+    print("Loopback client Connect!")
+    while True:
+        data = s.recv(2048)
+        # Client blinks on off slow on data reception
+        print(data.decode('utf-8'))
+        if data != 'NULL' :
+            led.value(1)
+            utime.sleep_ms(500)
+            led.value(0)
+            utime.sleep_ms(500)
+            data_int = int(data) + 1
+            s.send(str(data_int))
+        
+def main():
+    # Server blinks twice fast, three separate times
+    if is_server:
+        for x in range(3):
+            for y in range(2):
+                led.value(1)
+                utime.sleep_ms(50)
+                led.value(0)
+                utime.sleep_ms(50)
+            time.sleep(1)
+    # Client blinks three times slow
+    else:
+        for y in range(3):
+            led.value(1)
+            utime.sleep_ms(500)
+            led.value(0)
+            utime.sleep_ms(500)
+
+    w5x00_init()
+    
+    if is_server:
+        server_loop()
+    else:
+        client_loop()
+
+if __name__ == "__main__":
+    main()
+{% endhighlight %}
+
+There's a few key differences here:
+- Rather than comment out the client vs server code paths, I've added a global `is_server` bool to easily set one unit as the server, and the other as a client
+- The example code is a true loopback, it only sends what it receives, once.  In order to automate the testing, I've modified it so that before entering its infinite loop, the client sends an initial packet to kick off the server, and the two will send an integer back and forth, with the client incrementing it each loop.
+- I've added an assortment of LED blink combinations that we'll touch on in a bit
+
+We need to load this file onto our two W5500s, but ensure that one is the client, and one is the server.  Just like with the ping example, copy the file verbatim onto one of the units as `main.py`.  Then, make the following change:
+
+{% highlight ruby %}
+is_server=False
+# Changed to...
+is_server=True
+{% endhighlight %}
+
+Now copy this version onto the *other* W5500 as `main.py`. Once this is complete, you're ready to run the test.  Make sure you start the server Pico first, and then start the client unit. As mentioned previously, using the `repl` with two Pico units from the same host machine can cause some text output issues.  My suggestion is one of the following:
+- Just don't use the `repl`.  You can trigger a `main` refresh just by unplugging and plugging the units back in.  Since you're only concerned about power, this can be done from the same machine.  You'll see the activity lights on the units confirming data transition
+- Power one of them from a USB charging block, and use the `repl` on the other unit.  This will confirm the data transition, as well as let you see the data increment on one of the untis.
+- The ideal case that I do when testing is utilize two separate machines, and connect one unit to each, and run the `repl` from each machine.  This will allow you to see the data transfer on both sides
+
+### Trouble in paradise
+
+*NOTE: I wrote this section prior to discovering the official micropython build.  So far I have not seen these issues running that build, but I wanted to leave this section in for completeness, and in case anyone feels daring enough to use the Wiznet provided builds.  Caveat emptor, feel free to skip this section*
+
+I ran into an issue throughout the debugging process of the bidirectional comms where the server side of the code would come up fine, but the client version would fail in one of two ways:
+
+{% highlight ruby %}
+// Failure One
+Wiz SREG[3]:
+  0000: 00 00 00 00 00 00 ff ff ff ff ff ff 00 00 00 00
+  0010: 00 00 00 00 00 00 80 00 00 00 00 00 00 00 02 02
+  0020: 08 00 00 00 00 00 00 00 00 00 00 00 ff 40 00 00
+None
+Attempt Loopback client Connect!
+Traceback (most recent call last):
+  File "main.py", line 72, in <module>
+  File "main.py", line 69, in main
+  File "main.py", line 48, in client_loop
+OSError: 4
+{% endhighlight %}
+
+{% highlight ruby %}
+// Failure Two
+Wiz SREG[3]:
+  0000: 00 00 00 00 00 00 ff ff ff ff ff ff 00 00 00 00
+  0010: 00 00 00 00 00 00 80 00 00 00 00 00 00 00 02 02
+  0020: 08 00 00 00 00 00 00 00 00 00 00 00 ff 40 00 00
+None
+Attempt Loopback client Connect!
+Traceback (most recent call last):
+  File "main.py", line 77, in <module>
+  File "main.py", line 74, in main
+  File "main.py", line 49, in client_loop
+OSError: [Errno 13] EACCES
+{% endhighlight %}
+
+Ignore the line numbers, as I was tweaking things constantly while working through this.  Now, the latter example, `OSError: [Errno 13] EACCES` *sort of* makes sense, as this is the same error you get when running the client before the server is waiting for a connection.  Actually, it doesn't make sense, but at least I had another way of reproducing the error.  However, I have yet to get to the bottom of `OSError: 4`, and googling is tough given that the Errors are system specific for each port of Micropython, and not well documented from what I've seen.
+
+This issue is perplexing.  So far, these things seem to have an effect:
+- For a while, I could reproduce the issue by programming the client board with my RiP4 as opposed to my other machine.  This makes zero sense, but was consistent for a while
+- Swapping which board is plugged into which ethernet port on my router can cause it.  This makes more sense to me, as since I'm forcing static IPs that my router isn't aware of, it might not be honoring things.
+
+The code here is for demonstration purposes only, and when working on more hardened versions I'll almost certainly use DHCP with a discovery process to *hopefully* not run into these issues.
+
+### Back to it
+
+With that detour out of the way, let's get back to testing.  Assuming we've got our test setup correctly, the following procedure should be followed:
+1. Power up the server unit.  It will blink the LED two times fast, and then pause, repeating this three times altogether.
+2. After a brief period of initialization, the LED will go solid.  It's now ready for the client to connect.
+3. Power up the client.  It will blink three times slowly and then attempt to connect to the server.
+4. If this is successful, you'll start to see activity between the two boards, with the server blinking fast and the client slow on each data transfer
+
+Here's what the entire process looks like:
+
+<div class="video-container">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/3njtbqh5cgs?si=A3DugthZn3-F15gv" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+</div>
+
+### Bidirectional comms between a W5500 and a python server running on a regular PC
+
+If you only have one W5500, you'll still want to test its comm capabilities, so let's replace one of the units with a python script running on our PC.  First, the server script we'll run on the PC:
+
+[w5500_server.py](https://github.com/sjhennion/gh_pages_materials/blob/main/w5500-intro/w5500_server.py)
+{% highlight ruby %}
+#python 3
+
+import socket
+import json
+import sys
+
+from time import sleep
+
+def server_setup():
+    # Create a TCP/IP socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    server_address = ('', 5000) #desktop
+    print('starting up on {} port {}'.format(*server_address))
+    sock.bind(server_address)
+
+    # Listen for incoming connections
+    sock.listen(1)
+
+    while True:
+        # Wait for a connection
+        print('waiting for a connection')
+        connection, client_address = sock.accept()
+
+        try:
+            print('connection from', client_address)
+
+            # Receive the data in small chunks and retransmit it
+            while True:
+                data = connection.recv(16)
+                print('received {!r}'.format(data))
+                if data:
+                    print('sending data back to the client')
+                    connection.sendall(data)
+                else:
+                    print('no data from', client_address)
+                    break
+                
+        finally:
+            # Clean up the connection
+            connection.close()
+
+def main():
+    server_setup()
+
+main() 
+{% endhighlight %}
+
+This should look familiar, as it isn't too far off from the server code we're using on the W5500 itself.  The same concepts apply, create a socket and bind to it such that we're listening for inbound connections.  On thing to note in particular is that the `server_address` we're using doesn't provide an explicit IP. This ensures we're listening on all interfaces, as I ran into some issues connecting when binding to localhost, or a specific IP. We're also handling the sending procedure with a bit more care by using a `try:` block, only because the example code I found for a server already had it.  
+
+On the W5500 end, we need to make a small modification.  First, you'll need to find the IP of the machine you intend to run the server on.  If you're on a Linux or Mac box, just do the following:
+
+{% highlight bash %}
+stephan@desktop:~$ ifconfig
+enp4s0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 192.168.1.247  netmask 255.255.255.0  broadcast 192.168.1.255
+        inet6 fe80::acf6:cc70:1601:c0d1  prefixlen 64  scopeid 0x20<link>
+        ether b4:2e:99:ef:fd:bb  txqueuelen 1000  (Ethernet)
+        RX packets 4255205  bytes 906595006 (906.5 MB)
+        RX errors 0  dropped 73  overruns 0  frame 0
+        TX packets 5541790  bytes 5213724129 (5.2 GB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+        device memory 0xf7600000-f761ffff
+{% endhighlight %}
+
+You're looking for the IP following `inet` above, which is `192.168.1.247` in my case.  Next, you need to change the code on the W5500 client.  Look for the line where the client sets the address of the server it is connecting to, and change it:
+
+{% highlight ruby %}
+    print("Attempt Loopback client Connect!")
+
+    s = socket()
+    # This line here below
+    #s.connect(('192.168.1.20', 5000)) #Destination IP Address  
+
+    # Change to this, matching the IP collected above
+    s.connect(('192.168.1.247', 5000)) #Destination IP Address 
+{% endhighlight %}
+
+Now, run the server on your PC:
+
+{% highlight bash %}
+stephan@desktop:~$ python3 w5500_server.py
+starting up on  port 5000
+waiting for a connection
+{% endhighlight %}
+
+Then, start the W5500 client running your modified version of `bidirectional.py`. Along with the status LED, in the repl you should see:
+
+{% highlight bash %}
+...
+Attempt Loopback client Connect against 192.168.1.247
+Loopback client Connect!
+1
+2
+3
+{% endhighlight %}
+
+With the following on the server:
+
+{% highlight bash %}
+waiting for a connection
+connection from ('192.168.1.20', 58329)
+received b'1'
+sending data back to the client
+received b'2'
+sending data back to the client
+received b'3'
+sending data back to the client
+{% endhighlight %}
+
+## Wrapping Up
+
+I hope this has served as a solid foundation to your own hacking with the W5500.  As I said, I've got a project I'm in the prototyping stages of that currently uses regular Picos communicating over USB that I'm looking forward to converting over to ethernet. While these proof-of-concepts I've provided can get you up and running, they're nowhere near production ready.  If you're looking for next steps to expand on this, I'd suggest hardening the connection standup and come down, such that the client will loop attempting to connect to the server, and the server can handle clients coming and going.  Another good exercise would be running the server on the W5500, and creating a script to run on your PC that talks to it, reversing the example we provided above.
+
+If you come across any errors, or have suggestions for how better to present anything, please don't hesitate to reach out to me at [ghp@stephanj.com](mailto:ghp@stephanj.com).  Happy hacking!

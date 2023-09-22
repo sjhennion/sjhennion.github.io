@@ -97,6 +97,9 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: $base-font-weight;
 }
 
+h2 {
+  //margin-top: 50px;
+}
 
 
 /**
@@ -251,4 +254,20 @@ table {
   td {
     border: 1px solid $grey-color-light;
   }
+}
+
+.video-container {
+    position: relative;
+    padding-bottom: 56.25%;
+    padding-top: 35px;
+    height: 0;
+    overflow: hidden;
+}
+
+.video-container iframe {
+    position: absolute;
+    top:0;
+    left: 0;
+    width: 100%;
+    height: 100%;
 }
