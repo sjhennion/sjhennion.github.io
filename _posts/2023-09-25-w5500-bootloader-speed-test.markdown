@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "Fixing Connection Errors and Comparing TCP send speeds of Wiznet W5500 bootloaders"
-date:   2023-09-25 20:00:00 -0400
+date:   2023-09-25 17:00:00 -0400
 categories: jekyll update
 ---
 
